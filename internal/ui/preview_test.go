@@ -33,7 +33,7 @@ func TestPreview(t *testing.T) {
 					{Label: "Sensor 1", Celsius: 56.9},
 				},
 				Throttle: &monitor.ThrottleStats{Therm1TransCount: 2, Therm1TotalTime: 30, WarningTempTime: 4},
-				Capacity: &monitor.Capacity{UsedBytes: 472 * 1 << 30, TotalBytes: 1000 * 1 << 30},
+				Capacity: &monitor.Capacity{UsedBytes: 472 * 1 << 30, TotalBytes: 1000 * 1 << 30, UsedKnown: true},
 			},
 			{
 				Name: "nvme1", Model: "USB4 Enclosure 2TB", Address: "0000:03:00.0", Transport: "pcie",
@@ -43,7 +43,7 @@ func TestPreview(t *testing.T) {
 					{Label: "Sensor 2", Celsius: 34.9},
 				},
 				Throttle: &monitor.ThrottleStats{},
-				Capacity: &monitor.Capacity{UsedBytes: 1500 * 1 << 30, TotalBytes: 2000 * 1 << 30},
+				Capacity: &monitor.Capacity{UsedBytes: 1500 * 1 << 30, TotalBytes: 2000 * 1 << 30, UsedKnown: true},
 			},
 		},
 		Fans: []monitor.Fan{

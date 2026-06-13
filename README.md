@@ -60,12 +60,24 @@ nvmemon
 
 Flags:
 
-| Flag           | Default | Description                                        |
-|----------------|---------|----------------------------------------------------|
-| `-interval`    | `2s`    | Refresh interval                                   |
-| `-sysfs`       | `/sys`  | sysfs mount point                                  |
-| `-no-throttle` | `false` | Skip `nvme smart-log` throttle collection          |
-| `-version`     | `false` | Print version and exit                             |
+| Flag            | Default        | Description                                       |
+|-----------------|----------------|---------------------------------------------------|
+| `-interval`     | `2s`           | Refresh interval                                  |
+| `-sysfs`        | `/sys`         | sysfs mount point                                 |
+| `-proc-mounts`  | `/proc/mounts` | Mount table path                                  |
+| `-no-throttle`  | `false`        | Skip `nvme smart-log` throttle collection         |
+| `-once`         | `false`        | Print a single plain-text reading and exit (no TUI) |
+| `-version`      | `false`        | Print version and exit                            |
+
+### Smoke testing / headless use
+
+`-once` collects two samples one `-interval` apart, then prints a plain-text
+report (temperatures, throughput, utilization, capacity, throttling) and exits.
+It needs no terminal, so it's handy over SSH or for a quick sanity check:
+
+```sh
+nvmemon --once
+```
 
 ### Throughput data needs nvme-cli + root
 

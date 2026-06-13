@@ -166,10 +166,18 @@ func (m Model) renderActivity(d monitor.Drive, labelW, bw int) []string {
 
 	// Disk capacity row.
 	diskLabel := labelStyle.Render(fmt.Sprintf("%-*s", labelW, "Disk"))
-	if d.Capacity == nil || d.Capacity.TotalBytes == 0 {
+	switch {
+	case d.Capacity == nil || d.Capacity.TotalBytes == 0:
 		rows = append(rows, fmt.Sprintf("  %s  %s", diskLabel,
+			subtleStyle.Render("capacity unknown")))
+	case !d.Capacity.UsedKnown:
+		// We know the drive size but no filesystem on it is mounted.
+		bar := renderPercentBar(0, bw)
+		size := lipgloss.NewStyle().Foreground(labelStyle.GetForeground()).Bold(true).
+			Render(humanBytes(d.Capacity.TotalBytes))
+		rows = append(rows, fmt.Sprintf("  %s  %s  %s  %s", diskLabel, bar, size,
 			subtleStyle.Render("no mounted filesystem")))
-	} else {
+	default:
 		frac := d.Capacity.UsedFraction()
 		bar := renderPercentBar(frac*100, bw)
 		pct := lipgloss.NewStyle().Foreground(loadColorAt(frac)).Bold(true).

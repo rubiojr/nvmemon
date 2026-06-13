@@ -212,16 +212,22 @@ func TestRenderActivityStates(t *testing.T) {
 	m := NewModel(nil, 0)
 	m.width = 100
 
-	// No rate history yet -> "measuring".
+	// No rate history yet -> "measuring"; no capacity -> "capacity unknown".
 	d := monitor.Drive{Name: "nvme0", IO: &monitor.IOCounters{}}
 	out := strings.Join(m.renderActivity(d, 8, 20), "\n")
 	assert.Contains(t, out, "measuring")
+	assert.Contains(t, out, "capacity unknown")
+
+	// Known size but nothing mounted -> show size + hint.
+	d.Capacity = &monitor.Capacity{TotalBytes: 1 << 40, UsedKnown: false}
+	out = strings.Join(m.renderActivity(d, 8, 20), "\n")
+	assert.Contains(t, out, "1.0T")
 	assert.Contains(t, out, "no mounted filesystem")
 
 	// With rates + capacity.
 	m.rates["nvme0"] = ioRate{valid: true, readMBps: 100, writeMBps: 10, utilPct: 30}
 	m.peakMBps["nvme0"] = 200
-	d.Capacity = &monitor.Capacity{UsedBytes: 50 * 1 << 30, TotalBytes: 100 * 1 << 30}
+	d.Capacity = &monitor.Capacity{UsedBytes: 50 * 1 << 30, TotalBytes: 100 * 1 << 30, UsedKnown: true}
 	out = strings.Join(m.renderActivity(d, 8, 20), "\n")
 	assert.Contains(t, out, "100.0")
 	assert.Contains(t, out, "MB/s")

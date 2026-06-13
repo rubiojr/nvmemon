@@ -46,16 +46,17 @@ func fakeSysfs(t *testing.T) string {
 		"fan2": 3592,
 	})
 
-	// Namespaces with block stats (read=2000 sectors, write=1000, io_ticks=500).
-	mkNamespace(t, root, "nvme0", "nvme0n1", 2000, 1000, 500)
-	mkNamespace(t, root, "nvme1", "nvme1n1", 10, 0, 8)
+	// Namespaces with block stats (read=2000 sectors, write=1000, io_ticks=500)
+	// and a raw size in 512-byte sectors.
+	mkNamespace(t, root, "nvme0", "nvme0n1", 2000, 1000, 500, 2_000_000)
+	mkNamespace(t, root, "nvme1", "nvme1n1", 10, 0, 8, 4_000_000)
 
 	return root
 }
 
-// mkNamespace creates a namespace block dir with a "stat" file under the
-// controller's device directory.
-func mkNamespace(t *testing.T, root, ctrl, ns string, readSectors, writeSectors, ioMs int) {
+// mkNamespace creates a namespace block dir with "stat" and "size" files under
+// the controller's device directory.
+func mkNamespace(t *testing.T, root, ctrl, ns string, readSectors, writeSectors, ioMs, sizeSectors int) {
 	t.Helper()
 	dir := filepath.Join(root, "devices", ctrl, ns)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -66,6 +67,7 @@ func mkNamespace(t *testing.T, root, ctrl, ns string, readSectors, writeSectors,
 		parts[i] = strconv.Itoa(f)
 	}
 	writeFile(t, filepath.Join(dir, "stat"), strings.Join(parts, " "))
+	writeFile(t, filepath.Join(dir, "size"), strconv.Itoa(sizeSectors))
 }
 
 type sensorFix struct {
