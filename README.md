@@ -43,6 +43,15 @@ Or build from source:
 go build -o nvmemon .
 ```
 
+For release builds, stamp the exact tag into the binary:
+
+```sh
+go build -ldflags "-X github.com/rubiojr/nvmemon/internal/version.Version=$(git describe --tags)" -o nvmemon .
+```
+
+A plain `go install github.com/rubiojr/nvmemon@latest` already records the
+module tag, so `nvmemon --version` reports it without any ldflags.
+
 ## Usage
 
 ```sh
@@ -56,6 +65,7 @@ Flags:
 | `-interval`    | `2s`    | Refresh interval                                   |
 | `-sysfs`       | `/sys`  | sysfs mount point                                  |
 | `-no-throttle` | `false` | Skip `nvme smart-log` throttle collection          |
+| `-version`     | `false` | Print version and exit                             |
 
 ### Throughput data needs nvme-cli + root
 

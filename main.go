@@ -14,6 +14,7 @@ import (
 
 	"github.com/rubiojr/nvmemon/internal/monitor"
 	"github.com/rubiojr/nvmemon/internal/ui"
+	"github.com/rubiojr/nvmemon/internal/version"
 )
 
 func main() {
@@ -24,11 +25,17 @@ func main() {
 	}
 
 	var (
-		interval   = flag.Duration("interval", 2*time.Second, "refresh interval")
-		sysfsRoot  = flag.String("sysfs", "/sys", "sysfs mount point")
-		noThrottle = flag.Bool("no-throttle", false, "skip nvme-cli smart-log throttle collection")
+		interval    = flag.Duration("interval", 2*time.Second, "refresh interval")
+		sysfsRoot   = flag.String("sysfs", "/sys", "sysfs mount point")
+		noThrottle  = flag.Bool("no-throttle", false, "skip nvme-cli smart-log throttle collection")
+		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("nvmemon", version.String())
+		return
+	}
 
 	c := monitor.New()
 	c.SysfsRoot = *sysfsRoot
