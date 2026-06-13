@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,6 +17,12 @@ import (
 )
 
 func main() {
+	if runtime.GOOS != "linux" {
+		fmt.Fprintf(os.Stderr, "nvmemon: unsupported OS %q; nvmemon only runs on Linux "+
+			"(it reads sysfs and nvme-cli)\n", runtime.GOOS)
+		os.Exit(1)
+	}
+
 	var (
 		interval   = flag.Duration("interval", 2*time.Second, "refresh interval")
 		sysfsRoot  = flag.String("sysfs", "/sys", "sysfs mount point")

@@ -4,6 +4,9 @@ A terminal NVMe thermal monitor. It lists every attached NVMe drive with
 color-gradient temperature bars and cross-references each drive's thermal
 throttling counters and the system's fan speeds.
 
+> **Linux only.** nvmemon reads Linux `sysfs` and `nvme-cli`, so it does not
+> run on macOS or Windows.
+
 Built with [Bubble Tea v2](https://charm.land/bubbletea/v2) and
 [Lip Gloss v2](https://charm.land/lipgloss/v2).
 
