@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -234,4 +235,52 @@ func TestRenderActivityStates(t *testing.T) {
 	assert.Contains(t, out, "busy")
 	assert.Contains(t, out, "50%")
 	assert.Contains(t, out, "50.0G / 100G")
+}
+
+func TestRenderHelpContent(t *testing.T) {
+	m := NewModel(nil, 0)
+	m.width = 96
+	m.showHelp = true
+	out := m.render()
+	for _, want := range []string{
+		"What you're looking at", "Temp bars", "I/O bar", "busy %",
+		"Disk", "Throttle", "Fans", "Keys", "toggle this help", "quit",
+	} {
+		assert.Contains(t, out, want)
+	}
+}
+
+func TestHelpToggle(t *testing.T) {
+	m := NewModel(nil, 0)
+
+	// 'h' opens help.
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = updated.(Model)
+	assert.True(t, m.showHelp)
+
+	// 'h' again closes it.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	m = updated.(Model)
+	assert.False(t, m.showHelp)
+
+	// 'esc' closes help when open.
+	m.showHelp = true
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = updated.(Model)
+	assert.False(t, m.showHelp)
+}
+
+func TestQuitClosesHelpFirst(t *testing.T) {
+	m := NewModel(nil, 0)
+	m.showHelp = true
+
+	// 'q' with help open should close help, not quit.
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = updated.(Model)
+	assert.False(t, m.showHelp)
+	assert.Nil(t, cmd)
+
+	// 'q' with help closed quits.
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	assert.NotNil(t, cmd)
 }

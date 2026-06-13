@@ -58,6 +58,8 @@ module tag, so `nvmemon --version` reports it without any ldflags.
 nvmemon
 ```
 
+Keys: `h`/`?` toggle help · `r` refresh now · `q`/`esc` quit.
+
 Flags:
 
 | Flag            | Default        | Description                                       |

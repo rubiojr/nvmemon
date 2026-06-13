@@ -40,6 +40,8 @@ type Model struct {
 	rates    map[string]ioRate  // drive name -> derived rate
 	peakMBps map[string]float64 // drive name -> peak throughput, for bar scaling
 
+	showHelp bool
+
 	width  int
 	height int
 }
@@ -80,8 +82,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "q", "esc", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
+		case "q":
+			if m.showHelp { // q closes help first, otherwise quits
+				m.showHelp = false
+				return m, nil
+			}
+			return m, tea.Quit
+		case "esc":
+			m.showHelp = false
+			return m, nil
+		case "h", "?":
+			m.showHelp = !m.showHelp
+			return m, nil
 		case "r":
 			return m, m.collect()
 		}

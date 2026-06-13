@@ -51,6 +51,13 @@ func (m Model) render() string {
 	b.WriteString(subtleStyle.Render(fmt.Sprintf("%s  ·  refresh %s", status, m.interval)))
 	b.WriteString("\n\n")
 
+	if m.showHelp {
+		b.WriteString(m.renderHelp())
+		b.WriteByte('\n')
+		b.WriteString(subtleStyle.Render("h/esc close · q quit"))
+		return b.String()
+	}
+
 	if m.err != nil {
 		b.WriteString(dangerStyle.Render("error: ") + m.err.Error() + "\n")
 		b.WriteString(subtleStyle.Render("\nPress q to quit."))
@@ -77,8 +84,45 @@ func (m Model) render() string {
 		b.WriteByte('\n')
 	}
 
-	b.WriteString(subtleStyle.Render("q quit · r refresh"))
+	b.WriteString(subtleStyle.Render("h help · r refresh · q quit"))
 	return b.String()
+}
+
+// renderHelp renders the help/legend screen explaining every row and metric.
+func (m Model) renderHelp() string {
+	heading := func(s string) string {
+		return titleStyle.Render(s)
+	}
+	key := func(k, desc string) string {
+		return "  " + driveStyle.Render(fmt.Sprintf("%-9s", k)) + subtleStyle.Render(desc)
+	}
+	item := func(label, desc string) string {
+		return "  " + labelStyle.Render(fmt.Sprintf("%-12s", label)) + subtleStyle.Render(desc)
+	}
+
+	lines := []string{
+		heading("What you're looking at"),
+		"",
+		item("Temp bars", "per-sensor temperature; gradient runs cool blue → green →"),
+		item("", "yellow → orange → red. warn/crit are the drive's own limits."),
+		item("I/O bar", "read+write throughput, scaled to the peak seen this session"),
+		item("", "(relative, not a %). ↓ = read MB/s, ↑ = write MB/s."),
+		item("busy %", "utilization: share of time the drive was doing I/O. A full"),
+		item("", "I/O bar with low busy% just means bursty transfers with idle gaps."),
+		item("Disk", "filesystem usage across all partitions on the drive (resolved"),
+		item("", "through LVM/LUKS/btrfs). Total is the raw device capacity."),
+		item("Throttle", "thermal throttling from SMART; needs root + nvme-cli."),
+		item("Fans", "system fan speeds (RPM) for cross-reference."),
+		"",
+		heading("Keys"),
+		"",
+		key("h / ?", "toggle this help"),
+		key("r", "refresh now"),
+		key("q / esc", "quit"),
+	}
+
+	body := strings.Join(lines, "\n")
+	return panelStyle.Width(min(m.width-2, 92)).Render(body)
 }
 
 func (m Model) renderDrive(d monitor.Drive) string {
