@@ -41,6 +41,8 @@ type Model struct {
 	peakMBps map[string]float64 // drive name -> peak throughput, for bar scaling
 
 	showHelp bool
+	detail   bool // detailed SMART view for the selected drive is open
+	selected int  // index of the highlighted drive card
 
 	width  int
 	height int
@@ -81,25 +83,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "q":
-			if m.showHelp { // q closes help first, otherwise quits
-				m.showHelp = false
-				return m, nil
-			}
-			return m, tea.Quit
-		case "esc":
-			m.showHelp = false
-			return m, nil
-		case "h", "?":
-			m.showHelp = !m.showHelp
-			return m, nil
-		case "r":
-			return m, m.collect()
-		}
-		return m, nil
+		return m.handleKey(msg.String())
 
 	case snapshotMsg:
 		now := time.Now()
@@ -107,6 +91,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap = msg.snap
 		m.err = msg.err
 		m.updated = now
+		m.clampSelection()
 		return m, nil
 
 	case tickMsg:
@@ -117,11 +102,105 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleKey processes a key press (already reduced to its canonical string).
+func (m Model) handleKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q":
+		// q backs out of overlays first, otherwise quits.
+		if m.detail || m.showHelp {
+			m.detail = false
+			m.showHelp = false
+			return m, nil
+		}
+		return m, tea.Quit
+	case "esc":
+		// esc backs out one level: detail, then help.
+		if m.detail {
+			m.detail = false
+		} else {
+			m.showHelp = false
+		}
+		return m, nil
+	case "h", "?":
+		m.showHelp = !m.showHelp
+		if m.showHelp {
+			m.detail = false
+		}
+		return m, nil
+	case "tab", "down", "j":
+		m.moveSelection(1)
+		return m, nil
+	case "shift+tab", "up", "k":
+		m.moveSelection(-1)
+		return m, nil
+	case "enter":
+		if !m.showHelp && m.driveCount() > 0 {
+			m.detail = true
+		}
+		return m, nil
+	case "r":
+		return m, m.collect()
+	}
+	return m, nil
+}
+
 // View implements tea.Model.
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	return v
+}
+
+// driveCount returns the number of drives in the current snapshot.
+func (m Model) driveCount() int {
+	if m.snap == nil {
+		return 0
+	}
+	return len(m.snap.Drives)
+}
+
+// selectedDrive returns the highlighted drive and true, or a zero Drive and
+// false when there are no drives.
+func (m Model) selectedDrive() (monitor.Drive, bool) {
+	n := m.driveCount()
+	if n == 0 {
+		return monitor.Drive{}, false
+	}
+	idx := m.selected
+	if idx < 0 || idx >= n {
+		idx = 0
+	}
+	return m.snap.Drives[idx], true
+}
+
+// moveSelection advances the highlighted card by delta, wrapping around. It is
+// a no-op while the help screen is open or when there are fewer than two drives.
+func (m *Model) moveSelection(delta int) {
+	if m.showHelp {
+		return
+	}
+	n := m.driveCount()
+	if n < 2 {
+		m.selected = 0
+		return
+	}
+	m.selected = ((m.selected+delta)%n + n) % n
+}
+
+// clampSelection keeps the selection index within range as drives come and go.
+func (m *Model) clampSelection() {
+	n := m.driveCount()
+	switch {
+	case n == 0:
+		m.selected = 0
+		m.detail = false // nothing to show
+	case m.selected >= n:
+		m.selected = n - 1
+	case m.selected < 0:
+		m.selected = 0
+	}
 }
 
 // computeRates derives per-drive throughput and utilization by diffing the

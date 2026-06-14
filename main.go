@@ -95,6 +95,7 @@ func runOnce(c *monitor.Collector, interval time.Duration) error {
 		printIO(d, prev[d.Name], dt)
 		printCapacity(d)
 		printThrottle(d)
+		printHealth(d)
 	}
 	return nil
 }
@@ -140,6 +141,22 @@ func printThrottle(d monitor.Drive) {
 	default:
 		fmt.Println("  Throttle   none on record")
 	}
+}
+
+func printHealth(d monitor.Drive) {
+	h := d.Health
+	if h == nil {
+		fmt.Println("  Health     (unavailable; needs root + nvme-cli)")
+		return
+	}
+	status := "OK"
+	if h.CriticalWarning != 0 || h.MediaErrors > 0 || h.PercentageUsed >= 100 ||
+		(h.SpareThreshold > 0 && h.AvailableSpare <= h.SpareThreshold) {
+		status = "WARN"
+	}
+	fmt.Printf("  Health     %s  used %d%%  spare %d%%  written %s  on %dh  media-err %d\n",
+		status, h.PercentageUsed, h.AvailableSpare,
+		humanGB(h.BytesWritten()), h.PowerOnHours, h.MediaErrors)
 }
 
 func mbps(cur, prev uint64, dt float64) float64 {

@@ -45,6 +45,48 @@ func (t ThrottleStats) Throttled() bool {
 		t.WarningTempTime > 0 || t.CriticalCompTime > 0
 }
 
+// SmartHealth holds the wear, endurance and reliability counters reported by
+// the drive's SMART log. These are the same figures `nvme smart-log` prints.
+// Lifetime counters are cumulative since the drive was manufactured.
+type SmartHealth struct {
+	CriticalWarning int // critical warning bit field (0 = healthy)
+	TempK           int // composite temperature, in Kelvin (SMART convention)
+	AvailableSpare  int // remaining spare capacity, percent
+	SpareThreshold  int // spare percent at which the drive warns
+	PercentageUsed  int // estimated endurance consumed, percent (can exceed 100)
+
+	DataUnitsRead    uint64 // 512KB units read over the drive's life
+	DataUnitsWritten uint64 // 512KB units written over the drive's life
+	HostReadCommands uint64 // host read commands issued
+	HostWriteCmds    uint64 // host write commands issued
+
+	ControllerBusyTime uint64 // minutes the controller was busy with I/O
+	PowerCycles        uint64 // number of power cycles
+	PowerOnHours       uint64 // cumulative power-on time, hours
+	UnsafeShutdowns    uint64 // unexpected power loss count
+	MediaErrors        uint64 // detected uncorrectable data integrity errors
+	NumErrLogEntries   uint64 // entries in the error information log
+}
+
+// DataUnitBytes is the size in bytes of one SMART "data unit": 1000 * 512-byte
+// logical blocks (512000 bytes), per the NVMe specification.
+const DataUnitBytes = 512 * 1000
+
+// BytesRead returns total host-read bytes derived from the data-unit counter.
+func (h SmartHealth) BytesRead() uint64 { return h.DataUnitsRead * DataUnitBytes }
+
+// BytesWritten returns total host-written bytes derived from the data-unit counter.
+func (h SmartHealth) BytesWritten() uint64 { return h.DataUnitsWritten * DataUnitBytes }
+
+// TempC returns the composite temperature in Celsius, or false when the drive
+// did not report one.
+func (h SmartHealth) TempC() (float64, bool) {
+	if h.TempK == 0 {
+		return 0, false
+	}
+	return float64(h.TempK) - 273.15, true
+}
+
 // Drive is a single NVMe device with its sensors and (optional) throttle data.
 type Drive struct {
 	Name      string // controller name, e.g. "nvme0"
@@ -54,6 +96,7 @@ type Drive struct {
 	Transport string // e.g. "pcie"
 	Sensors   []TempSensor
 	Throttle  *ThrottleStats // nil when smart-log was unavailable
+	Health    *SmartHealth   // nil when smart-log was unavailable
 	SmartErr  error          // why throttle data is missing, if any
 
 	// IO holds cumulative block-I/O counters summed across the drive's
@@ -187,10 +230,11 @@ func (c *Collector) readDrive(hwmonDir string) (Drive, bool) {
 	c.attachBlockIO(&d, devPath)
 
 	if c.Run != nil {
-		if ts, err := c.smartLog(d.Node); err != nil {
+		if ts, health, err := c.smartLog(d.Node); err != nil {
 			d.SmartErr = err
 		} else {
 			d.Throttle = ts
+			d.Health = health
 		}
 	} else {
 		d.SmartErr = errors.New("smart-log collection disabled")
@@ -248,6 +292,8 @@ func readFans(dir, chip string) []Fan {
 }
 
 // smartLogJSON mirrors the subset of `nvme smart-log -o json` we care about.
+// Large counters are emitted by nvme-cli as JSON numbers; uint64 is sufficient
+// for any realistic drive lifetime.
 type smartLogJSON struct {
 	WarningTempTime  int `json:"warning_temp_time"`
 	CriticalCompTime int `json:"critical_comp_time"`
@@ -255,26 +301,62 @@ type smartLogJSON struct {
 	Therm1TotalTime  int `json:"thm_temp1_total_time"`
 	Therm2TransCount int `json:"thm_temp2_trans_count"`
 	Therm2TotalTime  int `json:"thm_temp2_total_time"`
+
+	CriticalWarning int `json:"critical_warning"`
+	Temperature     int `json:"temperature"`
+	AvailSpare      int `json:"avail_spare"`
+	SpareThresh     int `json:"spare_thresh"`
+	PercentUsed     int `json:"percent_used"`
+
+	DataUnitsRead     uint64 `json:"data_units_read"`
+	DataUnitsWritten  uint64 `json:"data_units_written"`
+	HostReadCommands  uint64 `json:"host_read_commands"`
+	HostWriteCommands uint64 `json:"host_write_commands"`
+
+	ControllerBusyTime uint64 `json:"controller_busy_time"`
+	PowerCycles        uint64 `json:"power_cycles"`
+	PowerOnHours       uint64 `json:"power_on_hours"`
+	UnsafeShutdowns    uint64 `json:"unsafe_shutdowns"`
+	MediaErrors        uint64 `json:"media_errors"`
+	NumErrLogEntries   uint64 `json:"num_err_log_entries"`
 }
 
-// smartLog invokes nvme-cli and parses the thermal counters.
-func (c *Collector) smartLog(node string) (*ThrottleStats, error) {
+// smartLog invokes nvme-cli and parses the thermal counters and health stats.
+func (c *Collector) smartLog(node string) (*ThrottleStats, *SmartHealth, error) {
 	out, err := c.Run("nvme", "smart-log", node, "-o", "json")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var raw smartLogJSON
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &ThrottleStats{
+	ts := &ThrottleStats{
 		WarningTempTime:  raw.WarningTempTime,
 		CriticalCompTime: raw.CriticalCompTime,
 		Therm1TransCount: raw.Therm1TransCount,
 		Therm1TotalTime:  raw.Therm1TotalTime,
 		Therm2TransCount: raw.Therm2TransCount,
 		Therm2TotalTime:  raw.Therm2TotalTime,
-	}, nil
+	}
+	health := &SmartHealth{
+		CriticalWarning:    raw.CriticalWarning,
+		TempK:              raw.Temperature,
+		AvailableSpare:     raw.AvailSpare,
+		SpareThreshold:     raw.SpareThresh,
+		PercentageUsed:     raw.PercentUsed,
+		DataUnitsRead:      raw.DataUnitsRead,
+		DataUnitsWritten:   raw.DataUnitsWritten,
+		HostReadCommands:   raw.HostReadCommands,
+		HostWriteCmds:      raw.HostWriteCommands,
+		ControllerBusyTime: raw.ControllerBusyTime,
+		PowerCycles:        raw.PowerCycles,
+		PowerOnHours:       raw.PowerOnHours,
+		UnsafeShutdowns:    raw.UnsafeShutdowns,
+		MediaErrors:        raw.MediaErrors,
+		NumErrLogEntries:   raw.NumErrLogEntries,
+	}
+	return ts, health, nil
 }
 
 // --- small sysfs helpers ---

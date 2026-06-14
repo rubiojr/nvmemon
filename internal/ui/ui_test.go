@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -120,7 +122,7 @@ func TestRenderDriveContainsKeyInfo(t *testing.T) {
 		},
 		Throttle: &monitor.ThrottleStats{},
 	}
-	out := m.renderDrive(d)
+	out := m.renderDrive(d, false)
 	assert.Contains(t, out, "nvme1")
 	assert.Contains(t, out, "USB4 Enclosure")
 	assert.Contains(t, out, "0000:03:00.0")
@@ -283,4 +285,172 @@ func TestQuitClosesHelpFirst(t *testing.T) {
 	// 'q' with help closed quits.
 	_, cmd = m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	assert.NotNil(t, cmd)
+}
+
+// modelWithDrives builds a Model whose snapshot holds n minimally-populated
+// drives named nvme0..nvme(n-1), each with health data.
+func modelWithDrives(n int) Model {
+	m := NewModel(nil, 0)
+	m.width = 100
+	drives := make([]monitor.Drive, n)
+	for i := range drives {
+		drives[i] = monitor.Drive{
+			Name:     fmt.Sprintf("nvme%d", i),
+			Node:     fmt.Sprintf("/dev/nvme%d", i),
+			Model:    "Test SSD",
+			Throttle: &monitor.ThrottleStats{},
+			Health: &monitor.SmartHealth{
+				TempK: 310, AvailableSpare: 100, SpareThreshold: 5, PercentageUsed: 1,
+				DataUnitsWritten: 1000, PowerOnHours: 100,
+			},
+		}
+	}
+	m.snap = &monitor.Snapshot{Drives: drives}
+	return m
+}
+
+func keyPress(m Model, s string, code rune) Model {
+	var msg tea.KeyPressMsg
+	switch s {
+	case "tab":
+		msg = tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		msg = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
+	case "enter":
+		msg = tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		msg = tea.KeyPressMsg{Code: tea.KeyEscape}
+	default:
+		msg = tea.KeyPressMsg{Code: code, Text: string(code)}
+	}
+	updated, _ := m.Update(msg)
+	return updated.(Model)
+}
+
+func TestTabCyclesSelection(t *testing.T) {
+	m := modelWithDrives(3)
+	assert.Equal(t, 0, m.selected)
+
+	m = keyPress(m, "tab", 0)
+	assert.Equal(t, 1, m.selected)
+	m = keyPress(m, "tab", 0)
+	assert.Equal(t, 2, m.selected)
+
+	// Wraps back to the first drive.
+	m = keyPress(m, "tab", 0)
+	assert.Equal(t, 0, m.selected)
+
+	// Shift+tab goes backward and wraps.
+	m = keyPress(m, "shift+tab", 0)
+	assert.Equal(t, 2, m.selected)
+}
+
+func TestTabNoopWithSingleDrive(t *testing.T) {
+	m := modelWithDrives(1)
+	m = keyPress(m, "tab", 0)
+	assert.Equal(t, 0, m.selected)
+}
+
+func TestEnterOpensAndEscClosesDetail(t *testing.T) {
+	m := modelWithDrives(2)
+	m = keyPress(m, "tab", 0) // select nvme1
+	require.Equal(t, 1, m.selected)
+
+	m = keyPress(m, "enter", 0)
+	assert.True(t, m.detail)
+
+	out := m.render()
+	assert.Contains(t, out, "nvme1")
+	assert.Contains(t, out, "Wear & endurance")
+
+	// esc backs out of the detail view first.
+	m = keyPress(m, "esc", 0)
+	assert.False(t, m.detail)
+}
+
+func TestEnterNoopWhenHelpOpen(t *testing.T) {
+	m := modelWithDrives(2)
+	m.showHelp = true
+	m = keyPress(m, "enter", 0)
+	assert.False(t, m.detail)
+}
+
+func TestSelectionClampsWhenDrivesShrink(t *testing.T) {
+	m := modelWithDrives(3)
+	m = keyPress(m, "tab", 0)
+	m = keyPress(m, "tab", 0)
+	require.Equal(t, 2, m.selected)
+	m.detail = true
+
+	// A new snapshot with a single drive must clamp selection and close detail
+	// only when there are zero drives; with one drive it clamps to 0.
+	updated, _ := m.Update(snapshotMsg{snap: &monitor.Snapshot{Drives: modelWithDrives(1).snap.Drives}})
+	m = updated.(Model)
+	assert.Equal(t, 0, m.selected)
+
+	// Now drop to zero drives: detail must close.
+	updated, _ = m.Update(snapshotMsg{snap: &monitor.Snapshot{}})
+	m = updated.(Model)
+	assert.Equal(t, 0, m.selected)
+	assert.False(t, m.detail)
+}
+
+func TestRenderDetailHealthy(t *testing.T) {
+	m := NewModel(nil, 0)
+	m.width = 100
+	d := monitor.Drive{
+		Name: "nvme0", Node: "/dev/nvme0", Model: "Samsung SSD 990 PRO",
+		Throttle: &monitor.ThrottleStats{Therm1TransCount: 7, Therm1TotalTime: 696},
+		Health: &monitor.SmartHealth{
+			TempK: 310, AvailableSpare: 100, SpareThreshold: 5, PercentageUsed: 2,
+			DataUnitsRead: 74547585, DataUnitsWritten: 34180136,
+			HostReadCommands: 548470530, HostWriteCmds: 579710735,
+			ControllerBusyTime: 1062, PowerCycles: 682, PowerOnHours: 2000,
+			UnsafeShutdowns: 13,
+		},
+	}
+	out := m.renderDetail(d)
+	for _, want := range []string{
+		"nvme0", "/dev/nvme0", "healthy",
+		"Wear & endurance", "Endurance used", "Spare available",
+		"Lifetime activity", "Data written", "Power-on time",
+		"Reliability", "Media errors",
+		"Thermal", "Temperature", "37°C",
+	} {
+		assert.Contains(t, out, want, "detail view should mention %q", want)
+	}
+}
+
+func TestRenderDetailFlagsProblems(t *testing.T) {
+	m := NewModel(nil, 0)
+	m.width = 100
+	d := monitor.Drive{
+		Name: "nvme0", Node: "/dev/nvme0",
+		Throttle: &monitor.ThrottleStats{},
+		Health: &monitor.SmartHealth{
+			TempK: 320, AvailableSpare: 3, SpareThreshold: 10,
+			PercentageUsed: 105, MediaErrors: 4,
+		},
+	}
+	out := m.renderDetail(d)
+	assert.Contains(t, out, "spare below threshold")
+	assert.Contains(t, out, "endurance exhausted")
+	assert.Contains(t, out, "media errors")
+}
+
+func TestRenderDetailUnavailable(t *testing.T) {
+	m := NewModel(nil, 0)
+	m.width = 100
+	d := monitor.Drive{Name: "nvme0", Node: "/dev/nvme0", SmartErr: errors.New("permission denied")}
+	out := m.renderDetail(d)
+	assert.Contains(t, out, "unavailable")
+	assert.Contains(t, out, "nvme-cli")
+}
+
+func TestHumanCount(t *testing.T) {
+	assert.Equal(t, "0", humanCount(0))
+	assert.Equal(t, "999", humanCount(999))
+	assert.Equal(t, "1.0K", humanCount(1000))
+	assert.Equal(t, "34.2M", humanCount(34180136))
+	assert.Equal(t, "580M", humanCount(579710735))
 }

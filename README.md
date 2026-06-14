@@ -28,6 +28,10 @@ Built with [Bubble Tea v2](https://charm.land/bubbletea/v2) and
 - Cross-references thermal throttling from the drive's SMART log
   (`nvme smart-log`): light/heavy throttle transitions, time spent throttled,
   and minutes above the warning/critical thresholds.
+- **Per-drive SMART health detail** — press `tab` to select a drive and `enter`
+  to open a full-screen view of its `nvme smart-log`: endurance used, spare
+  remaining, lifetime data written/read, power-on hours, power cycles, media
+  errors, unsafe shutdowns and a one-line health verdict.
 - Lists system fan speeds (e.g. ThinkPad fans) alongside the drives.
 - Live refresh; press `r` to force a refresh, `q` to quit.
 
@@ -58,7 +62,8 @@ module tag, so `nvmemon --version` reports it without any ldflags.
 nvmemon
 ```
 
-Keys: `h`/`?` toggle help · `r` refresh now · `q`/`esc` quit.
+Keys: `tab`/`shift+tab` (or `↑`/`↓`) select a drive · `enter` open its SMART
+health detail · `h`/`?` toggle help · `r` refresh now · `q`/`esc` back out / quit.
 
 Flags:
 
@@ -74,8 +79,9 @@ Flags:
 ### Smoke testing / headless use
 
 `-once` collects two samples one `-interval` apart, then prints a plain-text
-report (temperatures, throughput, utilization, capacity, throttling) and exits.
-It needs no terminal, so it's handy over SSH or for a quick sanity check:
+report (temperatures, throughput, utilization, capacity, throttling, and a SMART
+health summary) and exits. It needs no terminal, so it's handy over SSH or for a
+quick sanity check:
 
 ```sh
 nvmemon --once
@@ -84,15 +90,15 @@ nvmemon --once
 ### Throughput data needs nvme-cli + root
 
 Temperatures, fan speeds, I/O throughput, utilization, and capacity all come
-from sysfs / statfs and need no special privileges. Only the **throttling
-counters** come from `nvme smart-log`, which requires
+from sysfs / statfs and need no special privileges. The **throttling counters**
+and the **SMART health detail** both come from `nvme smart-log`, which requires
 [nvme-cli](https://github.com/linux-nvme/nvme-cli) and usually root:
 
 ```sh
 sudo nvmemon
 ```
 
-Without it, temperatures still work and the throttle line shows
+Without it, temperatures still work; the throttle line and the detail view show
 "unavailable (needs root + nvme-cli)". Use `-no-throttle` to skip it entirely.
 
 ## Development

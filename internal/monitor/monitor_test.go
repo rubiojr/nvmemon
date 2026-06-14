@@ -135,9 +135,9 @@ func TestCollect(t *testing.T) {
 		node := args[1]
 		switch node {
 		case "/dev/nvme0":
-			return []byte(`{"warning_temp_time":7,"critical_comp_time":0,"thm_temp1_trans_count":3,"thm_temp1_total_time":42,"thm_temp2_trans_count":1,"thm_temp2_total_time":5}`), nil
+			return []byte(`{"warning_temp_time":7,"critical_comp_time":0,"thm_temp1_trans_count":3,"thm_temp1_total_time":42,"thm_temp2_trans_count":1,"thm_temp2_total_time":5,"critical_warning":0,"temperature":310,"avail_spare":100,"spare_thresh":5,"percent_used":2,"data_units_read":74547585,"data_units_written":34180136,"host_read_commands":548470530,"host_write_commands":579710735,"controller_busy_time":1062,"power_cycles":682,"power_on_hours":2000,"unsafe_shutdowns":13,"media_errors":0,"num_err_log_entries":0}`), nil
 		case "/dev/nvme1":
-			return []byte(`{"warning_temp_time":0,"thm_temp1_trans_count":0,"thm_temp2_trans_count":0}`), nil
+			return []byte(`{"warning_temp_time":0,"thm_temp1_trans_count":0,"thm_temp2_trans_count":0,"avail_spare":98,"spare_thresh":10,"percent_used":40,"data_units_written":1000000,"power_on_hours":12000}`), nil
 		default:
 			return nil, errors.New("unexpected node")
 		}
@@ -170,11 +170,29 @@ func TestCollect(t *testing.T) {
 	assert.Equal(t, 1, d0.Throttle.Therm2TransCount)
 	assert.Equal(t, 7, d0.Throttle.WarningTempTime)
 
+	require.NotNil(t, d0.Health)
+	assert.Equal(t, 2, d0.Health.PercentageUsed)
+	assert.Equal(t, 100, d0.Health.AvailableSpare)
+	assert.Equal(t, 5, d0.Health.SpareThreshold)
+	assert.Equal(t, uint64(34180136), d0.Health.DataUnitsWritten)
+	assert.Equal(t, uint64(74547585), d0.Health.DataUnitsRead)
+	assert.Equal(t, uint64(34180136)*DataUnitBytes, d0.Health.BytesWritten())
+	assert.Equal(t, uint64(2000), d0.Health.PowerOnHours)
+	assert.Equal(t, uint64(682), d0.Health.PowerCycles)
+	assert.Equal(t, uint64(13), d0.Health.UnsafeShutdowns)
+	assert.Equal(t, uint64(0), d0.Health.MediaErrors)
+	tempC, ok := d0.Health.TempC()
+	require.True(t, ok)
+	assert.InDelta(t, 36.85, tempC, 0.01)
+
 	d1 := snap.Drives[1]
 	assert.Equal(t, "nvme1", d1.Name)
 	require.Len(t, d1.Sensors, 3)
 	require.NotNil(t, d1.Throttle)
 	assert.False(t, d1.Throttle.Throttled())
+	require.NotNil(t, d1.Health)
+	assert.Equal(t, 40, d1.Health.PercentageUsed)
+	assert.Equal(t, 98, d1.Health.AvailableSpare)
 
 	// Fans.
 	require.Len(t, snap.Fans, 2)
@@ -190,6 +208,7 @@ func TestCollectNoRunner(t *testing.T) {
 	require.NotEmpty(t, snap.Drives)
 	for _, d := range snap.Drives {
 		assert.Nil(t, d.Throttle)
+		assert.Nil(t, d.Health)
 		assert.Error(t, d.SmartErr)
 	}
 }
@@ -204,6 +223,7 @@ func TestCollectSmartLogError(t *testing.T) {
 	require.NoError(t, err)
 	for _, d := range snap.Drives {
 		assert.Nil(t, d.Throttle)
+		assert.Nil(t, d.Health)
 		assert.ErrorContains(t, d.SmartErr, "permission denied")
 	}
 }
@@ -231,6 +251,24 @@ func TestThrottledFlag(t *testing.T) {
 	assert.False(t, ThrottleStats{}.Throttled())
 	assert.True(t, ThrottleStats{Therm1TransCount: 1}.Throttled())
 	assert.True(t, ThrottleStats{WarningTempTime: 3}.Throttled())
+}
+
+func TestSmartHealthDerived(t *testing.T) {
+	h := SmartHealth{
+		TempK:            310,
+		DataUnitsRead:    2,
+		DataUnitsWritten: 3,
+	}
+	assert.Equal(t, uint64(2)*DataUnitBytes, h.BytesRead())
+	assert.Equal(t, uint64(3)*DataUnitBytes, h.BytesWritten())
+
+	c, ok := h.TempC()
+	require.True(t, ok)
+	assert.InDelta(t, 36.85, c, 0.01)
+
+	// Zero temperature means "not reported".
+	_, ok = SmartHealth{}.TempC()
+	assert.False(t, ok)
 }
 
 func TestMilliToC(t *testing.T) {
